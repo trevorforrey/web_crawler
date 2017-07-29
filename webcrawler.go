@@ -2,6 +2,8 @@
 
 // This project was based on examples in the following Golang book:
 // The Go Programming Language, by Alan A. A. Donovan & Brian W. Kernighan
+// The web crawler has been modified to take input from a running Go server
+// and display images found from crawling
 
 package main
 
@@ -10,6 +12,8 @@ import (
   "net/http"
   "os"
   "golang.org/x/net/html"
+  "html/template"
+  "strings"
 )
 // TODOs
 // * Create server to take Url(s)
@@ -27,7 +31,7 @@ func main() {
   go func() { worklist <- os.Args[1:] }()
 
   // Limits crawling to 20 go routines
-  for i := 0; i < 20; i++  {
+  for i := 0; i < 20; i++ {
     go func() {
       for link := range unseenLinks {
         foundLinks := crawl(link)
@@ -36,7 +40,9 @@ func main() {
     }()
   }
 
-  // Runs in main go routine to "manage" unseenLinks for crawling routines
+  // Runs in main go routine
+  // "manages" unseenLinks for crawling routines
+  // Due to possible links being search by multiple routines
   for list := range worklist {
     for _, link := range list {
       if !seen[link] {
@@ -49,7 +55,7 @@ func main() {
 
 
 func crawl(url string) []string {
-  fmt.Print(url)
+  //fmt.Print(url)
   links, err := extract(url)
   if err != nil {
     fmt.Errorf("Error extracting urls from: %s: %v", url, err)
@@ -88,6 +94,13 @@ func extract(url string) (contents []string, err error) {
           links = append(links, link.String())
         }
       }
+    } else if node.Type == html.ElementNode && node.Data == "img" {
+      fmt.Printf("IMAGE FOUND: ")
+      for _, a := range node.Attr {
+        if strings.HasPrefix(a.Val, "https://") { // Take only the src attr
+          fmt.Printf("%s\n", a.Val)
+        }
+      }
     }
   }
   forEveryNode(page, visitNode, nil)
@@ -106,3 +119,15 @@ func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
     post(node)
   }
 }
+
+// Html template for output
+var imageTemp = template.Must(template.New("imageTemp").Parse(`
+  <h1>{{.TotalCount}} images</h1>
+  <div class="images box">
+    {{range .Images}}
+    <div class="image container">
+      <img src="{{.ImgURL}}">
+    </div>
+    {{end}}
+  </div>
+`))
