@@ -12,16 +12,51 @@ import (
   "golang.org/x/net/html"
 )
 // TODOs
-// * Implement web crawler
 // * Create server to take Url(s)
 // * Create HTML template for results
 
 func main() {
-  contents, _ := extract(os.Args[1])
-  for _, link := range contents {
-    fmt.Printf("%s\n", link);
+  // contents, _ := extract(os.Args[1])
+  // for _, link := range contents {
+  //   fmt.Printf("%s\n", link);
+  // }
+  worklist := make(chan []string)
+  unseenLinks := make(chan string)
+  seen := make(map[string]bool)
+
+  go func() { worklist <- os.Args[1:] }()
+
+  // Limits crawling to 20 go routines
+  for i := 0; i < 20; i++  {
+    go func() {
+      for link := range unseenLinks {
+        foundLinks := crawl(link)
+        go func() { worklist <- foundLinks }()
+      }
+    }()
+  }
+
+  // Runs in main go routine to "manage" unseenLinks for crawling routines
+  for list := range worklist {
+    for _, link := range list {
+      if !seen[link] {
+        seen[link] = true;
+        unseenLinks <- link
+      }
+    }
   }
 }
+
+
+func crawl(url string) []string {
+  fmt.Print(url)
+  links, err := extract(url)
+  if err != nil {
+    fmt.Errorf("Error extracting urls from: %s: %v", url, err)
+  }
+  return links
+}
+
 
 // Extracts all urls from a web page
 func extract(url string) (contents []string, err error) {
@@ -58,6 +93,7 @@ func extract(url string) (contents []string, err error) {
   forEveryNode(page, visitNode, nil)
   return links, err
 }
+
 
 func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
   if pre != nil {
