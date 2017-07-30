@@ -20,6 +20,17 @@ import (
 // * Create HTML template for results
 
 func main() {
+  http.HandleFunc("/", search)
+  http.HandleFunc("/crawl", crawlForImages)
+  http.ListenAndServe(":8080", nil)
+}
+
+func search(writer http.ResponseWriter, r *http.Request) {
+    t, _ := template.ParseFiles("search.html")
+    t.Execute(writer, nil)
+}
+
+func crawlForImages(writer http.ResponseWriter, r *http.Request) {
   // contents, _ := extract(os.Args[1])
   // for _, link := range contents {
   //   fmt.Printf("%s\n", link);
@@ -34,7 +45,7 @@ func main() {
   for i := 0; i < 20; i++ {
     go func() {
       for link := range unseenLinks {
-        foundLinks := crawl(link)
+        foundLinks := crawl(writer, link)
         go func() { worklist <- foundLinks }()
       }
     }()
@@ -54,9 +65,9 @@ func main() {
 }
 
 
-func crawl(url string) []string {
+func crawl(writer http.ResponseWriter, url string) []string {
   //fmt.Print(url)
-  links, err := extract(url)
+  links, err := extract(writer, url)
   if err != nil {
     fmt.Errorf("Error extracting urls from: %s: %v", url, err)
   }
@@ -65,7 +76,7 @@ func crawl(url string) []string {
 
 
 // Extracts all urls from a web page
-func extract(url string) (contents []string, err error) {
+func extract(writer http.ResponseWriter, url string) (contents []string, err error) {
 
   resp, err := http.Get(url)
   if err != nil {
@@ -95,10 +106,10 @@ func extract(url string) (contents []string, err error) {
         }
       }
     } else if node.Type == html.ElementNode && node.Data == "img" {
-      fmt.Printf("IMAGE FOUND: ")
+      fmt.Fprintf(writer, "IMAGE FOUND: ")
       for _, a := range node.Attr {
         if strings.HasPrefix(a.Val, "https://") { // Take only the src attr
-          fmt.Printf("%s\n", a.Val)
+          fmt.Fprintf(writer, "%s\n", a.Val)
         }
       }
     }
@@ -121,13 +132,4 @@ func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
 }
 
 // Html template for output
-var imageTemp = template.Must(template.New("imageTemp").Parse(`
-  <h1>{{.TotalCount}} images</h1>
-  <div class="images box">
-    {{range .Images}}
-    <div class="image container">
-      <img src="{{.ImgURL}}">
-    </div>
-    {{end}}
-  </div>
-`))
+var imageTemp = template.Must(template.New("imageTemp").Parse("results.html")

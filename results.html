@@ -1,0 +1,8 @@
+<h1>{{.TotalCount}} images</h1>
+<div class="images box">
+  {{range .Images}}
+  <div class="image container">
+    <img src="{{.ImgURL}}">
+  </div>
+  {{end}}
+</div>
