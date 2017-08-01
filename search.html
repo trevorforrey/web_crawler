@@ -1,5 +1,23 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<script type='text/javascript' src='https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js'></script>
+<title>Go Image Web Crawler</title>
+</head>
+
+<script type='text/javascript'>
+ $(document).ready(function() {
+   $('input[name=baseURL]').change(function(){
+     $('form').submit();
+   });
+});
+</script>
+
 <h1> Enter in a URL as base to crawl through</h1>
-<form action="/login" method="get">
+<form action="/search" method="get">
     URL:<input type="text" name="url">
     <input type="submit" value="Search">
 </form>
+
+</html>

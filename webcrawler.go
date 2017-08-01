@@ -10,7 +10,6 @@ package main
 import (
   "fmt"
   "net/http"
-  "os"
   "golang.org/x/net/html"
   "html/template"
   "strings"
@@ -19,11 +18,48 @@ import (
 // * Create server to take Url(s)
 // * Create HTML template for results
 
+type PageVars struct {
+  TotalCount int
+  Images []string
+}
+
+// Make Template html file (with javascript & css)
+// Parse template
+// Execute Struct Variables on the template
+//t, err := template.ParseFiles("select.html")
+//err = t.Execute(w, MyPageVariables)
+
 func main() {
   http.HandleFunc("/", search)
   http.HandleFunc("/crawl", crawlForImages)
+  // http.HandleFunc("/", layoutTest)
   http.ListenAndServe(":8080", nil)
 }
+
+// var foundImages Images
+
+// func layoutTest(writer http.ResponseWriter, r *http.Request) {
+//
+//   i1 := Image{url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Space_Needle002.jpg/1200px-Space_Needle002.jpg"}
+//   i2 := Image{url: "http://doubletree3.hilton.com/resources/media/dt/CTAC-DT/en_US/img/shared/full_page_image_gallery/main/DT_spaceneedle_20_677x380_FitToBoxSmallDimension_Center.jpg"}
+//   i3 := Image{url: "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/Seattle_Columbia_Pano2.jpg/640px-Seattle_Columbia_Pano2.jpg"}
+//   i4 := Image{url: "https://image.dynamixse.com/s/crop/1600x1000/https://cdn.dynamixse.com/seattlegreatwheelcom/seattlegreatwheelcom_408653813.jpg"}
+//   i5 := Image{url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRoMqsnbBF6SVjnYIU_ZytViG4cTEZskVkXpmzL_zRDYtsO5r4QJg"}
+//
+//   imagesV := make([]string, 5)
+//   imagesV[0] = i1.url
+//   imagesV[1] = i2.url
+//   imagesV[2] = i3.url
+//   imagesV[3] = i4.url
+//   imagesV[4] = i5.url
+//
+//   var tester PageVars
+//   tester.TotalCount = 4
+//   tester.Images = imagesV
+//
+//   t, _ := template.ParseFiles("results.html")
+//   t.Execute(writer, tester)
+// }
 
 func search(writer http.ResponseWriter, r *http.Request) {
     t, _ := template.ParseFiles("search.html")
@@ -31,15 +67,17 @@ func search(writer http.ResponseWriter, r *http.Request) {
 }
 
 func crawlForImages(writer http.ResponseWriter, r *http.Request) {
-  // contents, _ := extract(os.Args[1])
-  // for _, link := range contents {
-  //   fmt.Printf("%s\n", link);
-  // }
+  t, _ := template.ParseFiles("results.html")
+
+  r.ParseForm()
+  var baseUrl []string
+  baseUrl[0] = r.Form.Get("baseURL")
+
   worklist := make(chan []string)
   unseenLinks := make(chan string)
   seen := make(map[string]bool)
 
-  go func() { worklist <- os.Args[1:] }()
+  go func() { worklist <- baseUrl }()
 
   // Limits crawling to 20 go routines
   for i := 0; i < 20; i++ {
@@ -130,6 +168,3 @@ func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
     post(node)
   }
 }
-
-// Html template for output
-var imageTemp = template.Must(template.New("imageTemp").Parse("results.html")
