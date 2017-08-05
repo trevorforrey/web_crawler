@@ -23,6 +23,9 @@ type PageVars struct {
   Images []string
 }
 
+n := 0
+var homePage PageVars
+
 // Make Template html file (with javascript & css)
 // Parse template
 // Execute Struct Variables on the template
@@ -67,7 +70,7 @@ func search(writer http.ResponseWriter, r *http.Request) {
 }
 
 func crawlForImages(writer http.ResponseWriter, r *http.Request) {
-  // t, _ := template.ParseFiles("results.html")
+  t, _ := template.ParseFiles("results.html")
 
   err := r.ParseForm()
   if err != nil {
@@ -110,6 +113,9 @@ func crawlForImages(writer http.ResponseWriter, r *http.Request) {
       }
     }
   }
+  t, _ := template.ParseFiles("results.html")
+  // TODO make struct of page variables and execute them here
+  // clean up crapper code
 }
 
 
@@ -156,6 +162,10 @@ func extract(writer http.ResponseWriter, url string) (contents []string, err err
     } else if node.Type == html.ElementNode && node.Data == "img" {
       fmt.Fprintf(writer, "IMAGE FOUND: ")
       fmt.Println("image found")
+      n++
+      if n > 15 {
+        return
+      }
       for _, a := range node.Attr {
         if strings.HasPrefix(a.Val, "https://") { // Take only the src attr
           fmt.Fprintf(writer, "%s\n", a.Val)
