@@ -8,15 +8,15 @@
 
 <script type='text/javascript'>
  $(document).ready(function() {
-   $('input[name=baseURL]').change(function(){
-     $('form').submit();
-   });
+  //  $('input[name=baseURL]').change(function(){
+  //    $('form').submit();
+  //  });
 });
 </script>
 
 <h1> Enter in a URL as base to crawl through</h1>
-<form action="/search" method="get">
-    URL:<input type="text" name="url">
+<form action="/crawl" method="post">
+    URL:<input type="text" name="baseURL">
     <input type="submit" value="Search">
 </form>
 

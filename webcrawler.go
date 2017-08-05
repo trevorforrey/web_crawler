@@ -67,11 +67,21 @@ func search(writer http.ResponseWriter, r *http.Request) {
 }
 
 func crawlForImages(writer http.ResponseWriter, r *http.Request) {
-  t, _ := template.ParseFiles("results.html")
+  // t, _ := template.ParseFiles("results.html")
 
-  r.ParseForm()
+  err := r.ParseForm()
+  if err != nil {
+    fmt.Println("ERROR READING FROM FORM")
+  }
+
+  formValue := r.PostFormValue("baseURL")
+  fmt.Println(formValue)
+
   var baseUrl []string
-  baseUrl[0] = r.Form.Get("baseURL")
+  baseUrl = append(baseUrl, formValue)
+  if len(baseUrl) == 0 {
+    fmt.Println("DIDN'T GET INPUT")
+  }
 
   worklist := make(chan []string)
   unseenLinks := make(chan string)
@@ -145,6 +155,7 @@ func extract(writer http.ResponseWriter, url string) (contents []string, err err
       }
     } else if node.Type == html.ElementNode && node.Data == "img" {
       fmt.Fprintf(writer, "IMAGE FOUND: ")
+      fmt.Println("image found")
       for _, a := range node.Attr {
         if strings.HasPrefix(a.Val, "https://") { // Take only the src attr
           fmt.Fprintf(writer, "%s\n", a.Val)
