@@ -14,55 +14,24 @@ import (
   "html/template"
   "strings"
 )
-// TODOs
-// * Create server to take Url(s)
-// * Create HTML template for results
 
 type PageVars struct {
   TotalCount int
   Images []string
 }
 
-n := 0
 var homePage PageVars
-
-// Make Template html file (with javascript & css)
-// Parse template
-// Execute Struct Variables on the template
-//t, err := template.ParseFiles("select.html")
-//err = t.Execute(w, MyPageVariables)
+var imageCount int
+var done chan struct{}
 
 func main() {
+  done = make(chan struct{})
   http.HandleFunc("/", search)
   http.HandleFunc("/crawl", crawlForImages)
   // http.HandleFunc("/", layoutTest)
   http.ListenAndServe(":8080", nil)
 }
 
-// var foundImages Images
-
-// func layoutTest(writer http.ResponseWriter, r *http.Request) {
-//
-//   i1 := Image{url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Space_Needle002.jpg/1200px-Space_Needle002.jpg"}
-//   i2 := Image{url: "http://doubletree3.hilton.com/resources/media/dt/CTAC-DT/en_US/img/shared/full_page_image_gallery/main/DT_spaceneedle_20_677x380_FitToBoxSmallDimension_Center.jpg"}
-//   i3 := Image{url: "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/Seattle_Columbia_Pano2.jpg/640px-Seattle_Columbia_Pano2.jpg"}
-//   i4 := Image{url: "https://image.dynamixse.com/s/crop/1600x1000/https://cdn.dynamixse.com/seattlegreatwheelcom/seattlegreatwheelcom_408653813.jpg"}
-//   i5 := Image{url: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRoMqsnbBF6SVjnYIU_ZytViG4cTEZskVkXpmzL_zRDYtsO5r4QJg"}
-//
-//   imagesV := make([]string, 5)
-//   imagesV[0] = i1.url
-//   imagesV[1] = i2.url
-//   imagesV[2] = i3.url
-//   imagesV[3] = i4.url
-//   imagesV[4] = i5.url
-//
-//   var tester PageVars
-//   tester.TotalCount = 4
-//   tester.Images = imagesV
-//
-//   t, _ := template.ParseFiles("results.html")
-//   t.Execute(writer, tester)
-// }
 
 func search(writer http.ResponseWriter, r *http.Request) {
     t, _ := template.ParseFiles("search.html")
@@ -70,7 +39,6 @@ func search(writer http.ResponseWriter, r *http.Request) {
 }
 
 func crawlForImages(writer http.ResponseWriter, r *http.Request) {
-  t, _ := template.ParseFiles("results.html")
 
   err := r.ParseForm()
   if err != nil {
@@ -89,15 +57,43 @@ func crawlForImages(writer http.ResponseWriter, r *http.Request) {
   worklist := make(chan []string)
   unseenLinks := make(chan string)
   seen := make(map[string]bool)
+  images := make(chan string)
 
   go func() { worklist <- baseUrl }()
+
+  var results PageVars
+
+  go func() {
+    for image := range images {
+      fmt.Println("Image received")
+      results.Images = append(results.Images, image)
+      results.TotalCount = results.TotalCount + 1
+    }
+    fmt.Println("reached end of images")
+  }()
 
   // Limits crawling to 20 go routines
   for i := 0; i < 20; i++ {
     go func() {
-      for link := range unseenLinks {
-        foundLinks := crawl(writer, link)
-        go func() { worklist <- foundLinks }()
+      select {
+      case <- done:
+        fmt.Print("crawling cancelled")
+        for range unseenLinks {
+          // drain unseenLinks
+        }
+      default:
+        for link := range unseenLinks {
+          foundLinks := crawl(writer, images, unseenLinks, link)
+          go func() {
+            if !cancelled() {
+              fmt.Print("not cancelled")
+              worklist <- foundLinks
+            }
+          }()
+          if cancelled() {
+            break
+          }
+        }
       }
     }()
   }
@@ -113,15 +109,22 @@ func crawlForImages(writer http.ResponseWriter, r *http.Request) {
       }
     }
   }
+
   t, _ := template.ParseFiles("results.html")
-  // TODO make struct of page variables and execute them here
-  // clean up crapper code
+  t.Execute(writer, results)
 }
 
 
-func crawl(writer http.ResponseWriter, url string) []string {
-  //fmt.Print(url)
-  links, err := extract(writer, url)
+func crawl(writer http.ResponseWriter, imagelist chan<- string, unseenLinks chan string, url string) []string {
+  if imageCount > 60 {
+    if !cancelled() {
+      fmt.Println("REACHED LIMIT")
+      close(done)
+    }
+    var emptyList []string
+    return emptyList
+  }
+  links, err := extract(writer, imagelist, url)
   if err != nil {
     fmt.Errorf("Error extracting urls from: %s: %v", url, err)
   }
@@ -130,7 +133,7 @@ func crawl(writer http.ResponseWriter, url string) []string {
 
 
 // Extracts all urls from a web page
-func extract(writer http.ResponseWriter, url string) (contents []string, err error) {
+func extract(writer http.ResponseWriter, imagelist chan<- string, url string) (contents []string, err error) {
 
   resp, err := http.Get(url)
   if err != nil {
@@ -161,14 +164,12 @@ func extract(writer http.ResponseWriter, url string) (contents []string, err err
       }
     } else if node.Type == html.ElementNode && node.Data == "img" {
       fmt.Fprintf(writer, "IMAGE FOUND: ")
-      fmt.Println("image found")
-      n++
-      if n > 15 {
-        return
-      }
+      fmt.Printf("image found %d\n", imageCount)
+      imageCount++
       for _, a := range node.Attr {
         if strings.HasPrefix(a.Val, "https://") { // Take only the src attr
-          fmt.Fprintf(writer, "%s\n", a.Val)
+          // fmt.Fprintf(writer, "%s\n", a.Val)
+          imagelist <- a.Val // send img src through images channel
         }
       }
     }
@@ -187,5 +188,14 @@ func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
   }
   if post != nil {
     post(node)
+  }
+}
+
+func cancelled() bool {
+  select {
+  case <- done:
+    return true
+  default:
+    return false
   }
 }
