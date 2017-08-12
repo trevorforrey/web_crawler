@@ -25,6 +25,11 @@ type ResultPageVars struct {
 	Images         []string
 	//TotalTime float64
 	ImageCountTotal int
+	ErrorMessage    string
+}
+
+type HomePageVars struct {
+	ErrorMessage string
 }
 
 type HomePageVars struct {
@@ -89,6 +94,7 @@ func search(writer http.ResponseWriter, r *http.Request) {
 func crawl(writer http.ResponseWriter, urls []string, depth int) []string {
 
 	var homeVars HomePageVars
+	var resultVars ResultPageVars
 
 	depth--
 	if depth == 0 {
@@ -102,9 +108,9 @@ func crawl(writer http.ResponseWriter, urls []string, depth int) []string {
 
 		if err != nil {
 			fmt.Print(err)
-			homeVars.ErrorMessage = err.Error()
-			t, _ := template.ParseFiles("home.html")
-			t.Execute(writer, homeVars)
+			resultVars.ErrorMessage = err.Error()
+			t, _ := template.ParseFiles("results.html")
+			t.Execute(writer, resultVars)
 			return emptyList
 		}
 
@@ -113,9 +119,9 @@ func crawl(writer http.ResponseWriter, urls []string, depth int) []string {
 
 		if err != nil {
 			fmt.Print(err)
-			homeVars.ErrorMessage = err.Error()
-			t, _ := template.ParseFiles("home.html")
-			t.Execute(writer, homeVars)
+			resultVars.ErrorMessage = err.Error()
+			t, _ := template.ParseFiles("results.html")
+			t.Execute(writer, resultVars)
 			return emptyList
 		}
 		resultUrls = append(newUrls, crawl(writer, newUrls, depth)...)
