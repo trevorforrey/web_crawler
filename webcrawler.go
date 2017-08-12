@@ -11,18 +11,24 @@ package main
 
 import (
 	"fmt"
-	"golang.org/x/net/html"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
+
+	"golang.org/x/net/html"
 )
 
-type PageVars struct {
+type ResultPageVars struct {
 	LinkCountTotal int
 	Links          []string
 	Images         []string
 	//TotalTime float64
 	ImageCountTotal int
+}
+
+type HomePageVars struct {
+	ErrorMessage string
 }
 
 var resultUrls []string
@@ -42,10 +48,15 @@ func home(writer http.ResponseWriter, r *http.Request) {
 
 func search(writer http.ResponseWriter, r *http.Request) {
 
-	var resultVars PageVars
+	var resultVars ResultPageVars
+	var homeVars HomePageVars
 
-	//Make sure http request is NOT a GET
-	//If it is, return an error to the user
+	if r.Method == "GET" {
+		homeVars.ErrorMessage = "Search via the search bar"
+		t, _ := template.ParseFiles("home.html")
+		t.Execute(writer, homeVars)
+		return
+	}
 
 	if err := r.ParseForm(); err != nil {
 		fmt.Println("ERROR READING FROM FORM")
@@ -54,7 +65,17 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	var baseUrls []string
 	baseUrls = append(baseUrls, r.PostFormValue("baseURLs"))
 
-	links := crawl(baseUrls, 2)
+	for _, baseUrl := range baseUrls {
+		_, err := url.ParseRequestURI(baseUrl)
+		if err != nil {
+			homeVars.ErrorMessage = "An invalid url was provided"
+			t, _ := template.ParseFiles("home.html")
+			t.Execute(writer, homeVars)
+			return
+		}
+	}
+
+	links := crawl(writer, baseUrls, 3)
 
 	resultVars.LinkCountTotal = len(links)
 	resultVars.Links = links
@@ -65,7 +86,9 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	t.Execute(writer, resultVars)
 }
 
-func crawl(urls []string, depth int) []string {
+func crawl(writer http.ResponseWriter, urls []string, depth int) []string {
+
+	var homeVars HomePageVars
 
 	depth--
 	if depth == 0 {
@@ -79,7 +102,10 @@ func crawl(urls []string, depth int) []string {
 
 		if err != nil {
 			fmt.Print(err)
-			continue
+			homeVars.ErrorMessage = err.Error()
+			t, _ := template.ParseFiles("home.html")
+			t.Execute(writer, homeVars)
+			return emptyList
 		}
 
 		resultImgs = append(resultImgs, pageImgs...)
@@ -87,9 +113,12 @@ func crawl(urls []string, depth int) []string {
 
 		if err != nil {
 			fmt.Print(err)
-			continue
+			homeVars.ErrorMessage = err.Error()
+			t, _ := template.ParseFiles("home.html")
+			t.Execute(writer, homeVars)
+			return emptyList
 		}
-		resultUrls = append(newUrls, crawl(newUrls, depth)...)
+		resultUrls = append(newUrls, crawl(writer, newUrls, depth)...)
 	}
 	return resultUrls
 }
