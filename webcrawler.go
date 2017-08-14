@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"golang.org/x/net/html"
 )
@@ -26,10 +27,7 @@ type ResultPageVars struct {
 	//TotalTime float64
 	ImageCountTotal int
 	ErrorMessage    string
-}
-
-type HomePageVars struct {
-	ErrorMessage string
+	Time            float64
 }
 
 type HomePageVars struct {
@@ -80,20 +78,28 @@ func search(writer http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	start := time.Now()
+
 	links := crawl(writer, baseUrls, 3)
+
+	elapsed := time.Since(start)
 
 	resultVars.LinkCountTotal = len(links)
 	resultVars.Links = links
 	resultVars.ImageCountTotal = len(resultImgs)
 	resultVars.Images = resultImgs
+	resultVars.Time = elapsed.Seconds()
 
 	t, _ := template.ParseFiles("results.html")
 	t.Execute(writer, resultVars)
+
+	resultUrls = nil
+	resultImgs = nil
+	cleanResults(resultVars)
 }
 
 func crawl(writer http.ResponseWriter, urls []string, depth int) []string {
 
-	var homeVars HomePageVars
 	var resultVars ResultPageVars
 
 	depth--
@@ -208,4 +214,13 @@ func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
 	if post != nil {
 		post(node)
 	}
+}
+
+func cleanResults(resultVars ResultPageVars) {
+	resultVars.LinkCountTotal = 0
+	resultVars.Links = nil
+	resultVars.ImageCountTotal = 0
+	resultVars.Images = nil
+	resultVars.Time = 0
+	resultVars.ErrorMessage = ""
 }
