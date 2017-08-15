@@ -5,7 +5,8 @@
 // The web crawler has been modified to take input from a running Go server
 // and display images found from crawling
 
-// TODO Clean and perfect this version. Research error handling, formatting, and Benchmarking
+// TODO Don't use channels just as queues - Research and draw out pattern in book
+// Create Workers pattern using go routines, (start out with 1 go routine)
 
 package main
 
@@ -21,10 +22,9 @@ import (
 )
 
 type ResultPageVars struct {
-	LinkCountTotal int
-	Links          []string
-	Images         []string
-	//TotalTime float64
+	LinkCountTotal  int
+	Links           []string
+	Images          []string
 	ImageCountTotal int
 	ErrorMessage    string
 	Time            float64
@@ -54,6 +54,8 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	var resultVars ResultPageVars
 	var homeVars HomePageVars
 	images := make(chan []string)
+
+	// Validating Input
 
 	if r.Method == "GET" {
 		homeVars.ErrorMessage = "Search via the search bar"
@@ -90,23 +92,15 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	}()
 
 	start := time.Now()
-
 	links := crawl(images, writer, baseUrls, 3)
 	close(images)
-
 	elapsed := time.Since(start)
 
-	resultVars.LinkCountTotal = len(links)
-	resultVars.Links = links
-	resultVars.ImageCountTotal = len(resultImgs)
-	resultVars.Images = resultImgs
-	resultVars.Time = elapsed.Seconds()
+	resultVars = aggregateResults(resultVars, links, elapsed.Seconds())
 
 	t, _ := template.ParseFiles("results.html")
 	t.Execute(writer, resultVars)
 
-	resultUrls = nil
-	resultImgs = nil
 	cleanResults(resultVars)
 }
 
@@ -132,9 +126,9 @@ func crawl(images chan<- []string, writer http.ResponseWriter, urls []string, de
 			return emptyList
 		}
 		fmt.Println("Before sending to images channel")
-		// resultImgs = append(resultImgs, pageImgs...)
-		images <- pageImgs //Send url images to images channel
+		images <- pageImgs
 		fmt.Println("After sending to the images channel")
+
 		newUrls, err := extractLinks(link)
 
 		if err != nil {
@@ -230,7 +224,18 @@ func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
 	}
 }
 
+func aggregateResults(resultVars ResultPageVars, links []string, elapsed float64) ResultPageVars {
+	resultVars.LinkCountTotal = len(links)
+	resultVars.Links = links
+	resultVars.ImageCountTotal = len(resultImgs)
+	resultVars.Images = resultImgs
+	resultVars.Time = elapsed.Seconds()
+	return resultVars
+}
+
 func cleanResults(resultVars ResultPageVars) {
+	resultUrls = nil
+	resultImgs = nil
 	resultVars.LinkCountTotal = 0
 	resultVars.Links = nil
 	resultVars.ImageCountTotal = 0
