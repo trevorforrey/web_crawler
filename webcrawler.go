@@ -37,6 +37,7 @@ type HomePageVars struct {
 var resultUrls []string
 var resultImgs []string
 var emptyList []string
+var worklist chan []string
 
 func main() {
 	http.HandleFunc("/", home)
@@ -50,9 +51,9 @@ func home(writer http.ResponseWriter, r *http.Request) {
 }
 
 func search(writer http.ResponseWriter, r *http.Request) {
-
 	var resultVars ResultPageVars
 	var homeVars HomePageVars
+	images := make(chan []string)
 
 	if r.Method == "GET" {
 		homeVars.ErrorMessage = "Search via the search bar"
@@ -78,9 +79,20 @@ func search(writer http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Listens for new imgs found and adds to resultImgs
+	// Will need to Mutex lock this op. when mult workers
+	go func() {
+		for imgList := range images {
+			for _, img := range imgList {
+				resultImgs = append(resultImgs, img)
+			}
+		}
+	}()
+
 	start := time.Now()
 
-	links := crawl(writer, baseUrls, 3)
+	links := crawl(images, writer, baseUrls, 3)
+	close(images)
 
 	elapsed := time.Since(start)
 
@@ -98,7 +110,7 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	cleanResults(resultVars)
 }
 
-func crawl(writer http.ResponseWriter, urls []string, depth int) []string {
+func crawl(images chan<- []string, writer http.ResponseWriter, urls []string, depth int) []string {
 
 	var resultVars ResultPageVars
 
@@ -119,8 +131,10 @@ func crawl(writer http.ResponseWriter, urls []string, depth int) []string {
 			t.Execute(writer, resultVars)
 			return emptyList
 		}
-
-		resultImgs = append(resultImgs, pageImgs...)
+		fmt.Println("Before sending to images channel")
+		// resultImgs = append(resultImgs, pageImgs...)
+		images <- pageImgs //Send url images to images channel
+		fmt.Println("After sending to the images channel")
 		newUrls, err := extractLinks(link)
 
 		if err != nil {
@@ -130,7 +144,7 @@ func crawl(writer http.ResponseWriter, urls []string, depth int) []string {
 			t.Execute(writer, resultVars)
 			return emptyList
 		}
-		resultUrls = append(newUrls, crawl(writer, newUrls, depth)...)
+		resultUrls = append(newUrls, crawl(images, writer, newUrls, depth)...)
 	}
 	return resultUrls
 }
