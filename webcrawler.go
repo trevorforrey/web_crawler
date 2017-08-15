@@ -34,9 +34,14 @@ type HomePageVars struct {
 	ErrorMessage string
 }
 
+type Link struct {
+	Url   string
+	Depth int
+}
+
 var resultUrls []string
 var resultImgs []string
-var emptyList []string
+var emptyLinks []Link
 var worklist chan []string
 
 func main() {
@@ -53,6 +58,9 @@ func home(writer http.ResponseWriter, r *http.Request) {
 func search(writer http.ResponseWriter, r *http.Request) {
 	var resultVars ResultPageVars
 	var homeVars HomePageVars
+
+	worklist := make(chan []Link)
+	unseenLinks := make(chan Link)
 	images := make(chan []string)
 
 	// Validating Input
@@ -70,6 +78,7 @@ func search(writer http.ResponseWriter, r *http.Request) {
 
 	var baseUrls []string
 	baseUrls = append(baseUrls, r.PostFormValue("baseURLs"))
+	var baseLinks []Link
 
 	for _, baseUrl := range baseUrls {
 		_, err := url.ParseRequestURI(baseUrl)
@@ -79,10 +88,21 @@ func search(writer http.ResponseWriter, r *http.Request) {
 			t.Execute(writer, homeVars)
 			return
 		}
+		var newLink Link
+		newLink.Url = baseUrl
+		newLink.Depth = 1
+		baseLinks = append(baseLinks, newLink)
 	}
 
+	//////////////////////////////////////////////////////////////
+
+	// send starting links to worklist
+	go func() {
+		worklist <- baseLinks
+	}()
+
 	// Listens for new imgs found and adds to resultImgs
-	// Will need to Mutex lock this op. when mult workers
+	// Ends once images channel is closed
 	go func() {
 		for imgList := range images {
 			for _, img := range imgList {
@@ -92,11 +112,33 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	}()
 
 	start := time.Now()
-	links := crawl(images, writer, baseUrls, 3)
+	maxDepth := 3
+
+	go func() {
+		for link := range unseenLinks {
+			foundLinks := crawl(link, images, writer, maxDepth)
+			go func() {
+				worklist <- foundLinks
+			}()
+		}
+	}()
+
+	seen := make(map[Link]bool)
+	for list := range worklist {
+		for _, link := range list {
+			if !seen[link] {
+				seen[link] = true
+				resultUrls = append(resultUrls, link.Url)
+				unseenLinks <- link
+			}
+		}
+	}
+
 	close(images)
+
 	elapsed := time.Since(start)
 
-	resultVars = aggregateResults(resultVars, links, elapsed.Seconds())
+	resultVars = aggregateResults(resultVars, resultUrls, elapsed.Seconds())
 
 	t, _ := template.ParseFiles("results.html")
 	t.Execute(writer, resultVars)
@@ -104,60 +146,56 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	cleanResults(resultVars)
 }
 
-func crawl(images chan<- []string, writer http.ResponseWriter, urls []string, depth int) []string {
+func crawl(link Link, images chan<- []string, writer http.ResponseWriter, maxDepth int) []Link {
 
 	var resultVars ResultPageVars
 
-	depth--
-	if depth == 0 {
-		fmt.Println("Reached depth of zero")
-		return emptyList
+	if link.Depth == maxDepth {
+		fmt.Println("Reached max depth")
+		return emptyLinks // see if possible to return nil
 	}
 
-	for _, link := range urls {
-		fmt.Println(link)
-		pageImgs, err := extractImgs(link)
+	fmt.Println(link)
+	pageImgs, err := extractImgs(link)
 
-		if err != nil {
-			fmt.Print(err)
-			resultVars.ErrorMessage = err.Error()
-			t, _ := template.ParseFiles("results.html")
-			t.Execute(writer, resultVars)
-			return emptyList
-		}
-		fmt.Println("Before sending to images channel")
-		images <- pageImgs
-		fmt.Println("After sending to the images channel")
-
-		newUrls, err := extractLinks(link)
-
-		if err != nil {
-			fmt.Print(err)
-			resultVars.ErrorMessage = err.Error()
-			t, _ := template.ParseFiles("results.html")
-			t.Execute(writer, resultVars)
-			return emptyList
-		}
-		resultUrls = append(newUrls, crawl(images, writer, newUrls, depth)...)
+	if err != nil {
+		fmt.Print(err)
+		resultVars.ErrorMessage = err.Error()
+		t, _ := template.ParseFiles("results.html")
+		t.Execute(writer, resultVars)
+		return emptyLinks
 	}
-	return resultUrls
+	fmt.Println("Before sending to images channel")
+	images <- pageImgs
+	fmt.Println("After sending to the images channel")
+
+	newLinks, err := extractLinks(link)
+
+	if err != nil {
+		fmt.Print(err)
+		resultVars.ErrorMessage = err.Error()
+		t, _ := template.ParseFiles("results.html")
+		t.Execute(writer, resultVars)
+		return emptyLinks
+	}
+	return newLinks
 }
 
 // Extracts all urls from a web page
-func extractLinks(url string) (links []string, err error) {
+func extractLinks(link Link) (links []Link, err error) {
 
-	resp, err := http.Get(url)
+	resp, err := http.Get(link.Url)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("Error getting: %s | %s", url, resp.Status)
+		return nil, fmt.Errorf("Error getting: %s | %s", link.Url, resp.Status)
 	}
 	page, err := html.Parse(resp.Body) // returns root *htmlNode
 	resp.Body.Close()
 	if err != nil {
-		fmt.Errorf("Error parsing html:%s,  %v", url, err)
+		fmt.Errorf("Error parsing html:%s,  %v", link.Url, err)
 		return nil, err
 	}
 
@@ -166,11 +204,14 @@ func extractLinks(url string) (links []string, err error) {
 		if node.Type == html.ElementNode && node.Data == "a" {
 			for _, a := range node.Attr {
 				if a.Key == "href" {
-					link, err := resp.Request.URL.Parse(a.Val)
+					url, err := resp.Request.URL.Parse(a.Val)
 					if err != nil { // only accept valid urls
 						continue
 					}
-					links = append(links, link.String())
+					var newLink Link
+					newLink.Url = url.String()
+					newLink.Depth = link.Depth + 1
+					links = append(links, newLink)
 				}
 			}
 		}
@@ -180,9 +221,9 @@ func extractLinks(url string) (links []string, err error) {
 }
 
 // Extracts all imgs from a web page
-func extractImgs(url string) (images []string, err error) {
+func extractImgs(url Link) (images []string, err error) {
 
-	resp, err := http.Get(url)
+	resp, err := http.Get(url.Url)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +270,7 @@ func aggregateResults(resultVars ResultPageVars, links []string, elapsed float64
 	resultVars.Links = links
 	resultVars.ImageCountTotal = len(resultImgs)
 	resultVars.Images = resultImgs
-	resultVars.Time = elapsed.Seconds()
+	resultVars.Time = elapsed
 	return resultVars
 }
 
