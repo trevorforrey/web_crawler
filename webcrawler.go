@@ -115,20 +115,45 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	maxDepth := 3
 
 	go func() {
-		for link := range unseenLinks {
-			foundLinks := crawl(link, images, writer, maxDepth)
-			go func() {
-				worklist <- foundLinks
-			}()
+		for {
+			select {
+			case link := <-unseenLinks:
+				fmt.Println("Received on unseenLinks")
+				foundLinks := crawl(link, images, writer, maxDepth)
+				if len(foundLinks) == 0 {
+					continue
+				}
+				go func() {
+					fmt.Println("Before send on work list")
+					worklist <- foundLinks
+				}()
+			case <-time.After(10 * time.Second):
+				close(unseenLinks)
+			}
 		}
 	}()
 
+	// TODO figure out a way to close worklist or defer the close
+	// Timeout on unseenLinks is to try and start closing because
+	// it seems as though worklist stops sending unseen links after parsing
+	// through bottom level link nodes. This keeps the crawling goroutine spinning
+	// in its range loop, same with worklist, both spin trying to read
+
+	// After closing unseenLinks, I could send a quit channel on worklist?!
+
 	seen := make(map[Link]bool)
 	for list := range worklist {
+		fmt.Println("Received on worklist")
 		for _, link := range list {
+			if link.Depth == 3 {
+				fmt.Println("Didn't send max depth url")
+				continue
+			}
 			if !seen[link] {
+				fmt.Println("New link")
 				seen[link] = true
 				resultUrls = append(resultUrls, link.Url)
+				fmt.Println("Before send on unseen links")
 				unseenLinks <- link
 			}
 		}
