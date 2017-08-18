@@ -5,9 +5,6 @@
 // The web crawler has been modified to take input from a running Go server
 // and display images found from crawling
 
-// TODO Don't use channels just as queues - Research and draw out pattern in book
-// Create Workers pattern using go routines, (start out with 1 go routine)
-
 package main
 
 import (
@@ -115,31 +112,19 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	maxDepth := 3
 
 	go func() {
-		for {
-			select {
-			case link := <-unseenLinks:
-				fmt.Println("Received on unseenLinks")
-				foundLinks := crawl(link, images, writer, maxDepth)
-				if len(foundLinks) == 0 {
-					continue
-				}
-				go func() {
-					fmt.Println("Before send on work list")
-					worklist <- foundLinks
-				}()
-			case <-time.After(10 * time.Second):
-				close(unseenLinks)
+		for link := range unseenLinks {
+			fmt.Println("Received on unseenLinks")
+			foundLinks := crawl(link, images, writer, maxDepth)
+			if len(foundLinks) == 0 {
+				continue
 			}
+			go func() {
+				fmt.Println("Before send on work list")
+				worklist <- foundLinks
+				fmt.Println("After send on work list")
+			}()
 		}
 	}()
-
-	// TODO figure out a way to close worklist or defer the close
-	// Timeout on unseenLinks is to try and start closing because
-	// it seems as though worklist stops sending unseen links after parsing
-	// through bottom level link nodes. This keeps the crawling goroutine spinning
-	// in its range loop, same with worklist, both spin trying to read
-
-	// After closing unseenLinks, I could send a quit channel on worklist?!
 
 	seen := make(map[Link]bool)
 	for list := range worklist {
@@ -164,6 +149,10 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	elapsed := time.Since(start)
 
 	resultVars = aggregateResults(resultVars, resultUrls, elapsed.Seconds())
+	fmt.Println(resultVars.ImageCountTotal)
+	fmt.Println(resultVars.ErrorMessage)
+	fmt.Println(resultVars.LinkCountTotal)
+	time.Sleep(10 * time.Second)
 
 	t, _ := template.ParseFiles("results.html")
 	t.Execute(writer, resultVars)
