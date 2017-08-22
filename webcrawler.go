@@ -56,12 +56,9 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	var resultVars ResultPageVars
 	var homeVars HomePageVars
 
-	worklist := make(chan []Link)
-	unseenLinks := make(chan Link)
 	images := make(chan []string)
 
 	// Validating Input
-
 	if r.Method == "GET" {
 		homeVars.ErrorMessage = "Search via the search bar"
 		t, _ := template.ParseFiles("home.html")
@@ -91,12 +88,17 @@ func search(writer http.ResponseWriter, r *http.Request) {
 		baseLinks = append(baseLinks, newLink)
 	}
 
+	// CRAWLING LOGIC
 	//////////////////////////////////////////////////////////////
 
 	// send starting links to worklist
-	go func() {
-		worklist <- baseLinks
-	}()
+	baseChan := gen(baseLinks)
+	firstDiscovered := crawler(baseChan)
+	nextSet := filter(firstDiscovered)
+	secondDiscovered := crawler(nextSet)
+	finalOutput := filter(secondDiscovered)
+
+	// Then consume output
 
 	// Listens for new imgs found and adds to resultImgs
 	// Ends once images channel is closed
@@ -110,54 +112,53 @@ func search(writer http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	maxDepth := 3
-
-	go func() {
-		for link := range unseenLinks {
-			fmt.Println("Received on unseenLinks")
-			foundLinks := crawl(link, images, writer, maxDepth)
-			if len(foundLinks) == 0 {
-				continue
-			}
-			go func() {
-				fmt.Println("Before send on work list")
-				worklist <- foundLinks
-				fmt.Println("After send on work list")
-			}()
-		}
-	}()
-
-	seen := make(map[Link]bool)
-	for list := range worklist {
-		fmt.Println("Received on worklist")
-		for _, link := range list {
-			if link.Depth == 3 {
-				fmt.Println("Didn't send max depth url")
-				continue
-			}
-			if !seen[link] {
-				fmt.Println("New link")
-				seen[link] = true
-				resultUrls = append(resultUrls, link.Url)
-				fmt.Println("Before send on unseen links")
-				unseenLinks <- link
-			}
-		}
-	}
-
-	close(images)
-
-	elapsed := time.Since(start)
-
-	resultVars = aggregateResults(resultVars, resultUrls, elapsed.Seconds())
-	fmt.Println(resultVars.ImageCountTotal)
-	fmt.Println(resultVars.ErrorMessage)
-	fmt.Println(resultVars.LinkCountTotal)
-	time.Sleep(10 * time.Second)
+	abort := make(chan bool, 2)
 
 	t, _ := template.ParseFiles("results.html")
 	t.Execute(writer, resultVars)
 
 	cleanResults(resultVars)
+}
+
+func gen(entryLinks []Link) <-chan []Link {
+	out := make(chan []Link)
+	go func() {
+		out <- entryLinks
+		close(out)
+	}()
+	return out
+}
+
+func filter(discoveredLinks <-chan []Link) chan<- []Link {
+	filteredLinks := make(chan []Link)
+	var links []Link
+	go func() {
+		for link := range discoveredLinks {
+			if !seen(Link) {
+				//mutex Lock
+				// set to true
+				// send on output chan
+				//mutex unlock
+			} else {
+				continue
+			}
+		}
+		links = append(links, link)
+		filteredLinks <- links
+		close(filteredLinks)
+	}()
+	return filteredLinks
+}
+
+func crawler(worklist <-chan []Link) chan<- []Link {
+	discoveredLinks := make(chan []Link)
+	go func() {
+		for link := range worklist {
+			discoveredLinks <- crawl(link)
+		}
+		close(discoveredLinks)
+	}()
+	return discoveredLinks
 }
 
 func crawl(link Link, images chan<- []string, writer http.ResponseWriter, maxDepth int) []Link {
