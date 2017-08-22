@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -39,7 +40,6 @@ type Link struct {
 var resultUrls []string
 var resultImgs []string
 var emptyLinks []Link
-var worklist chan []string
 
 func main() {
 	http.HandleFunc("/", home)
@@ -89,16 +89,6 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	// CRAWLING LOGIC
-	//////////////////////////////////////////////////////////////
-
-	// send starting links to worklist
-	baseChan := gen(baseLinks)
-	firstDiscovered := crawler(baseChan)
-	nextSet := filter(firstDiscovered)
-	secondDiscovered := crawler(nextSet)
-	finalOutput := filter(secondDiscovered)
-
-	// Then consume output
 
 	// Listens for new imgs found and adds to resultImgs
 	// Ends once images channel is closed
@@ -109,10 +99,29 @@ func search(writer http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-
+	//////////////////////////////////////////////////////////////
+	seenLinks := make(map[Link]bool)
 	start := time.Now()
-	maxDepth := 3
-	abort := make(chan bool, 2)
+
+	// send starting links to worklist
+	baseChan := gen(baseLinks)
+	firstDiscovered := crawler(baseChan, images, writer)
+	nextSet := filter(firstDiscovered, seenLinks)
+	secondDiscovered := crawler(nextSet, images, writer)
+	finalOutput := filter(secondDiscovered, seenLinks)
+
+	// Then consume output
+	for linkList := range finalOutput {
+		for _, link := range linkList {
+			resultVars.Links = append(resultVars.Links, link.Url)
+		}
+	}
+	elapsedTime := time.Since(start).Seconds()
+
+	resultVars.LinkCountTotal = len(resultVars.Links)
+	resultVars.Images = resultImgs
+	resultVars.ImageCountTotal = len(resultVars.Images)
+	resultVars.Time = elapsedTime
 
 	t, _ := template.ParseFiles("results.html")
 	t.Execute(writer, resultVars)
@@ -129,46 +138,46 @@ func gen(entryLinks []Link) <-chan []Link {
 	return out
 }
 
-func filter(discoveredLinks <-chan []Link) chan<- []Link {
+func filter(discoveredLinks <-chan []Link, seenLinks map[Link]bool) <-chan []Link {
+	var mutex = &sync.Mutex{}
 	filteredLinks := make(chan []Link)
-	var links []Link
+	var goodLinks []Link
 	go func() {
-		for link := range discoveredLinks {
-			if !seen(Link) {
-				//mutex Lock
-				// set to true
-				// send on output chan
-				//mutex unlock
-			} else {
-				continue
+		for links := range discoveredLinks {
+			for _, link := range links {
+				mutex.Lock()
+				if !seenLinks[link] {
+					seenLinks[link] = true
+					goodLinks = append(goodLinks, link)
+					mutex.Unlock()
+				} else {
+					mutex.Unlock()
+					continue
+				}
 			}
 		}
-		links = append(links, link)
-		filteredLinks <- links
+		filteredLinks <- goodLinks
 		close(filteredLinks)
 	}()
 	return filteredLinks
 }
 
-func crawler(worklist <-chan []Link) chan<- []Link {
+func crawler(worklist <-chan []Link, images chan<- []string, writer http.ResponseWriter) <-chan []Link {
 	discoveredLinks := make(chan []Link)
 	go func() {
-		for link := range worklist {
-			discoveredLinks <- crawl(link)
+		for linkList := range worklist {
+			for _, link := range linkList {
+				discoveredLinks <- crawl(link, images, writer)
+			}
 		}
 		close(discoveredLinks)
 	}()
 	return discoveredLinks
 }
 
-func crawl(link Link, images chan<- []string, writer http.ResponseWriter, maxDepth int) []Link {
+func crawl(link Link, images chan<- []string, writer http.ResponseWriter) []Link {
 
 	var resultVars ResultPageVars
-
-	if link.Depth == maxDepth {
-		fmt.Println("Reached max depth")
-		return emptyLinks // see if possible to return nil
-	}
 
 	fmt.Println(link)
 	pageImgs, err := extractImgs(link)
