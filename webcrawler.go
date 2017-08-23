@@ -40,6 +40,7 @@ type Link struct {
 
 var resultImgs []string
 var emptyLinks []Link
+var mutex sync.Mutex
 
 func main() {
 	http.HandleFunc("/", home)
@@ -111,10 +112,8 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	finalOutput := filter(secondDiscovered, seenLinks)
 
 	// Consume output
-	for linkList := range finalOutput {
-		for _, link := range linkList {
-			resultVars.Links = append(resultVars.Links, link.Url)
-		}
+	for outputLink := range finalOutput {
+		resultVars.Links = append(resultVars.Links, outputLink.Url)
 	}
 
 	elapsedTime := time.Since(start).Seconds()
@@ -126,46 +125,43 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	cleanResults(resultVars)
 }
 
-func gen(entryLinks []Link) <-chan []Link {
-	out := make(chan []Link)
+func gen(entryLinks []Link) <-chan Link {
+	out := make(chan Link)
 	go func() {
-		out <- entryLinks
+		for _, link := range entryLinks {
+			out <- link
+		}
 		close(out)
 	}()
 	return out
 }
 
-func filter(discoveredLinks <-chan []Link, seenLinks map[Link]bool) <-chan []Link {
-	var mutex = &sync.Mutex{}
-	filteredLinks := make(chan []Link)
-	var goodLinks []Link
+func filter(discoveredLinks <-chan []Link, seenLinks map[Link]bool) <-chan Link {
+	filteredLinks := make(chan Link)
 	go func() {
 		for links := range discoveredLinks {
 			for _, link := range links {
 				mutex.Lock()
 				if !seenLinks[link] {
 					seenLinks[link] = true
-					goodLinks = append(goodLinks, link)
 					mutex.Unlock()
+					filteredLinks <- link
 				} else {
 					mutex.Unlock()
 					continue
 				}
 			}
 		}
-		filteredLinks <- goodLinks
 		close(filteredLinks)
 	}()
 	return filteredLinks
 }
 
-func crawler(worklist <-chan []Link, images chan<- []string, writer http.ResponseWriter) <-chan []Link {
+func crawler(linkChan <-chan Link, images chan<- []string, writer http.ResponseWriter) <-chan []Link {
 	discoveredLinks := make(chan []Link)
 	go func() {
-		for linkList := range worklist {
-			for _, link := range linkList {
-				discoveredLinks <- crawl(link, images, writer)
-			}
+		for link := range linkChan {
+			discoveredLinks <- crawl(link, images, writer)
 		}
 		close(discoveredLinks)
 	}()
