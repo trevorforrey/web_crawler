@@ -2,7 +2,8 @@
 
 // This project was based on examples in the following Golang book:
 // The Go Programming Language, by Alan A. A. Donovan & Brian W. Kernighan
-// The web crawler has been modified to take input from a running Go server
+// The base channel and go routine structure has been changed to a pipeline structure
+// The web crawler has also been modified to take input from a running Go server
 // and display images found from crawling
 
 package main
@@ -37,7 +38,6 @@ type Link struct {
 	Depth int
 }
 
-var resultUrls []string
 var resultImgs []string
 var emptyLinks []Link
 
@@ -55,8 +55,6 @@ func home(writer http.ResponseWriter, r *http.Request) {
 func search(writer http.ResponseWriter, r *http.Request) {
 	var resultVars ResultPageVars
 	var homeVars HomePageVars
-
-	images := make(chan []string)
 
 	// Validating Input
 	if r.Method == "GET" {
@@ -88,8 +86,10 @@ func search(writer http.ResponseWriter, r *http.Request) {
 		baseLinks = append(baseLinks, newLink)
 	}
 
-	// CRAWLING LOGIC
+	// DONE VALIDATING INPUT
 
+	// CRAWLING LOGIC
+	images := make(chan []string)
 	// Listens for new imgs found and adds to resultImgs
 	// Ends once images channel is closed
 	go func() {
@@ -99,29 +99,26 @@ func search(writer http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	//////////////////////////////////////////////////////////////
+
 	seenLinks := make(map[Link]bool)
 	start := time.Now()
 
-	// send starting links to worklist
+	// Set up pipelines
 	baseChan := gen(baseLinks)
 	firstDiscovered := crawler(baseChan, images, writer)
 	nextSet := filter(firstDiscovered, seenLinks)
 	secondDiscovered := crawler(nextSet, images, writer)
 	finalOutput := filter(secondDiscovered, seenLinks)
 
-	// Then consume output
+	// Consume output
 	for linkList := range finalOutput {
 		for _, link := range linkList {
 			resultVars.Links = append(resultVars.Links, link.Url)
 		}
 	}
-	elapsedTime := time.Since(start).Seconds()
 
-	resultVars.LinkCountTotal = len(resultVars.Links)
-	resultVars.Images = resultImgs
-	resultVars.ImageCountTotal = len(resultVars.Images)
-	resultVars.Time = elapsedTime
+	elapsedTime := time.Since(start).Seconds()
+	resultVars = aggregateResults(resultVars, elapsedTime)
 
 	t, _ := template.ParseFiles("results.html")
 	t.Execute(writer, resultVars)
@@ -176,7 +173,6 @@ func crawler(worklist <-chan []Link, images chan<- []string, writer http.Respons
 }
 
 func crawl(link Link, images chan<- []string, writer http.ResponseWriter) []Link {
-
 	var resultVars ResultPageVars
 
 	fmt.Println(link)
@@ -289,9 +285,8 @@ func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
 	}
 }
 
-func aggregateResults(resultVars ResultPageVars, links []string, elapsed float64) ResultPageVars {
-	resultVars.LinkCountTotal = len(links)
-	resultVars.Links = links
+func aggregateResults(resultVars ResultPageVars, elapsed float64) ResultPageVars {
+	resultVars.LinkCountTotal = len(resultVars.Links)
 	resultVars.ImageCountTotal = len(resultImgs)
 	resultVars.Images = resultImgs
 	resultVars.Time = elapsed
@@ -299,7 +294,6 @@ func aggregateResults(resultVars ResultPageVars, links []string, elapsed float64
 }
 
 func cleanResults(resultVars ResultPageVars) {
-	resultUrls = nil
 	resultImgs = nil
 	resultVars.LinkCountTotal = 0
 	resultVars.Links = nil
