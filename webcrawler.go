@@ -196,7 +196,8 @@ func crawl(link Link, images chan<- []string, writer http.ResponseWriter) []Link
 	var resultVars ResultPageVars
 
 	fmt.Println(link)
-	pageImgs, err := extractImgs(link)
+
+	newLinks, newImgs, err := extract(link)
 
 	if err != nil {
 		fmt.Print(err)
@@ -205,38 +206,25 @@ func crawl(link Link, images chan<- []string, writer http.ResponseWriter) []Link
 		t.Execute(writer, resultVars)
 		return emptyLinks
 	}
-	fmt.Println("Before sending to images channel")
-	images <- pageImgs
-	fmt.Println("After sending to the images channel")
-
-	newLinks, err := extractLinks(link)
-
-	if err != nil {
-		fmt.Print(err)
-		resultVars.ErrorMessage = err.Error()
-		t, _ := template.ParseFiles("results.html")
-		t.Execute(writer, resultVars)
-		return emptyLinks
-	}
+	images <- newImgs
 	return newLinks
 }
 
 // Extracts all urls from a web page
-func extractLinks(link Link) (links []Link, err error) {
-
+func extract(link Link) (links []Link, images []string, err error) {
 	resp, err := http.Get(link.Url)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("Error getting: %s | %s", link.Url, resp.Status)
+		return nil, nil, fmt.Errorf("Error getting: %s | %s", link.Url, resp.Status)
 	}
 	page, err := html.Parse(resp.Body) // returns root *htmlNode
 	resp.Body.Close()
 	if err != nil {
 		fmt.Errorf("Error parsing html:%s,  %v", link.Url, err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	var visitNode func(node *html.Node)
@@ -254,33 +242,7 @@ func extractLinks(link Link) (links []Link, err error) {
 					links = append(links, newLink)
 				}
 			}
-		}
-	}
-	forEveryNode(page, visitNode, nil)
-	return links, err
-}
-
-// Extracts all imgs from a web page
-func extractImgs(url Link) (images []string, err error) {
-
-	resp, err := http.Get(url.Url)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("Error getting: %s | %s", url, resp.Status)
-	}
-	page, err := html.Parse(resp.Body) // returns root *htmlNode
-	resp.Body.Close()
-	if err != nil {
-		fmt.Errorf("Error parsing html:%s,  %v", url, err)
-		return nil, err
-	}
-
-	var visitNode func(node *html.Node)
-	visitNode = func(node *html.Node) {
-		if node.Type == html.ElementNode && node.Data == "img" {
+		} else if node.Type == html.ElementNode && node.Data == "img" {
 			for _, a := range node.Attr {
 				if strings.HasPrefix(a.Val, "https://") {
 					fmt.Println(a.Val)
@@ -290,7 +252,7 @@ func extractImgs(url Link) (images []string, err error) {
 		}
 	}
 	forEveryNode(page, visitNode, nil)
-	return images, err
+	return links, images, err
 }
 
 func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
