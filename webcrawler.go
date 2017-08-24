@@ -90,27 +90,30 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	// DONE VALIDATING INPUT
 
 	// CRAWLING LOGIC
-	images := make(chan []string)
+	images := make(chan string)
 	// Listens for new imgs found and adds to resultImgs
 	// Ends once images channel is closed
 	go func() {
-		for imgList := range images {
-			for _, img := range imgList {
-				resultImgs = append(resultImgs, img)
-			}
+		for img := range images {
+			resultImgs = append(resultImgs, img)
 		}
 	}()
 
 	seenLinks := make(map[Link]bool)
 	start := time.Now()
 
-	// Set up pipelines
+	// // Set up pipelines
+	// baseChan := gen(baseLinks)
+	// firstDiscovered := crawler(baseChan, images, writer)
+	// nextSet := filter(firstDiscovered, seenLinks)
+	// // Fan out/in of nextSet
+	// secondDiscovered := merge(crawler(nextSet, images, writer), crawler(nextSet, images, writer), crawler(nextSet, images, writer), crawler(nextSet, images, writer))
+	// finalOutput := filter(secondDiscovered, seenLinks)
 	baseChan := gen(baseLinks)
-	firstDiscovered := crawler(baseChan, images, writer)
-	nextSet := filter(firstDiscovered, seenLinks)
-	// Fan out/in of nextSet
-	secondDiscovered := merge(crawler(nextSet, images, writer), crawler(nextSet, images, writer), crawler(nextSet, images, writer), crawler(nextSet, images, writer))
-	finalOutput := filter(secondDiscovered, seenLinks)
+	crawl1Chan := speedyCrawl(baseChan, images, writer)
+	filter1Chan := speedyFilter(crawl1Chan, seenLinks)
+	crawl2Chan := speedyMerge(speedyCrawl(filter1Chan, images, writer), speedyCrawl(filter1Chan, images, writer), speedyCrawl(filter1Chan, images, writer), speedyCrawl(filter1Chan, images, writer), speedyCrawl(filter1Chan, images, writer))
+	finalOutput := speedyFilter(crawl2Chan, seenLinks)
 
 	// Consume output
 	for outputLink := range finalOutput {
@@ -133,6 +136,29 @@ func merge(linkChans ...<-chan []Link) <-chan []Link {
 	deplete := func(linkChan <-chan []Link) {
 		for discoveredLinks := range linkChan {
 			mergedChan <- discoveredLinks
+		}
+		wg.Done()
+	}
+
+	wg.Add(len(linkChans))
+	for _, linkChannel := range linkChans {
+		go deplete(linkChannel)
+	}
+
+	go func() {
+		wg.Wait()
+		close(mergedChan)
+	}()
+	return mergedChan
+}
+
+func speedyMerge(linkChans ...<-chan Link) <-chan Link {
+	var wg sync.WaitGroup
+	mergedChan := make(chan Link)
+
+	deplete := func(linkChan <-chan Link) {
+		for discoveredLink := range linkChan {
+			mergedChan <- discoveredLink
 		}
 		wg.Done()
 	}
@@ -181,6 +207,26 @@ func filter(discoveredLinks <-chan []Link, seenLinks map[Link]bool) <-chan Link 
 	return filteredLinks
 }
 
+func speedyFilter(discoveredLinks <-chan Link, seenLinks map[Link]bool) <-chan Link {
+	filteredLinks := make(chan Link)
+	go func() {
+		for link := range discoveredLinks {
+			mutex.Lock()
+			if !seenLinks[link] {
+				seenLinks[link] = true
+				mutex.Unlock()
+				filteredLinks <- link
+			} else {
+				mutex.Unlock()
+				continue
+			}
+		}
+		close(filteredLinks)
+		fmt.Println("Close of speed filter")
+	}()
+	return filteredLinks
+}
+
 func crawler(linkChan <-chan Link, images chan<- []string, writer http.ResponseWriter) <-chan []Link {
 	discoveredLinks := make(chan []Link)
 	go func() {
@@ -208,6 +254,60 @@ func crawl(link Link, images chan<- []string, writer http.ResponseWriter) []Link
 	}
 	images <- newImgs
 	return newLinks
+}
+
+func speedyCrawl(linkChan <-chan Link, images chan<- string, writer http.ResponseWriter) <-chan Link {
+	// var resultVars ResultPageVars
+	foundLink := make(chan Link)
+
+	go func() {
+		for link := range linkChan {
+			resp, err := http.Get(link.Url)
+			if err != nil {
+				fmt.Errorf("Error parsing html:%s,  %v", link.Url, err)
+				// return nil, nil, err
+			}
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				fmt.Errorf("Error parsing html:%s,  %v", link.Url, err)
+				// return nil, nil, fmt.Errorf("Error getting: %s | %s", link.Url, resp.Status)
+			}
+			page, err := html.Parse(resp.Body) // returns root *htmlNode
+			resp.Body.Close()
+			if err != nil {
+				fmt.Errorf("Error parsing html:%s,  %v", link.Url, err)
+				// return nil, nil, err
+			}
+
+			var visitNode func(node *html.Node)
+			visitNode = func(node *html.Node) {
+				if node.Type == html.ElementNode && node.Data == "a" {
+					for _, a := range node.Attr {
+						if a.Key == "href" {
+							url, err := resp.Request.URL.Parse(a.Val)
+							if err != nil { // only accept valid urls
+								continue
+							}
+							var newLink Link
+							newLink.Url = url.String()
+							newLink.Depth = link.Depth + 1
+							foundLink <- newLink // TODO Point to send link
+						}
+					}
+				} else if node.Type == html.ElementNode && node.Data == "img" {
+					for _, a := range node.Attr {
+						if strings.HasPrefix(a.Val, "https://") {
+							fmt.Println(a.Val)
+							images <- a.Val // TODO Point to send img
+						}
+					}
+				}
+			}
+			forEveryNode(page, visitNode, nil)
+		}
+		close(foundLink)
+	}()
+	return foundLink
 }
 
 // Extracts all urls from a web page
@@ -239,14 +339,14 @@ func extract(link Link) (links []Link, images []string, err error) {
 					var newLink Link
 					newLink.Url = url.String()
 					newLink.Depth = link.Depth + 1
-					links = append(links, newLink)
+					links = append(links, newLink) // TODO Point to send link
 				}
 			}
 		} else if node.Type == html.ElementNode && node.Data == "img" {
 			for _, a := range node.Attr {
 				if strings.HasPrefix(a.Val, "https://") {
 					fmt.Println(a.Val)
-					images = append(images, a.Val)
+					images = append(images, a.Val) // TODO Point to send img
 				}
 			}
 		}
