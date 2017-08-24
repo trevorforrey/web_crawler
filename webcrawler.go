@@ -108,7 +108,8 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	baseChan := gen(baseLinks)
 	firstDiscovered := crawler(baseChan, images, writer)
 	nextSet := filter(firstDiscovered, seenLinks)
-	secondDiscovered := crawler(nextSet, images, writer)
+	// Fan out/in of nextSet
+	secondDiscovered := merge(crawler(nextSet, images, writer), crawler(nextSet, images, writer), crawler(nextSet, images, writer), crawler(nextSet, images, writer))
 	finalOutput := filter(secondDiscovered, seenLinks)
 
 	// Consume output
@@ -123,6 +124,29 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	t.Execute(writer, resultVars)
 
 	cleanResults(resultVars)
+}
+
+func merge(linkChans ...<-chan []Link) <-chan []Link {
+	var wg sync.WaitGroup
+	mergedChan := make(chan []Link)
+
+	deplete := func(linkChan <-chan []Link) {
+		for discoveredLinks := range linkChan {
+			mergedChan <- discoveredLinks
+		}
+		wg.Done()
+	}
+
+	wg.Add(len(linkChans))
+	for _, linkChannel := range linkChans {
+		go deplete(linkChannel)
+	}
+
+	go func() {
+		wg.Wait()
+		close(mergedChan)
+	}()
+	return mergedChan
 }
 
 func gen(entryLinks []Link) <-chan Link {
