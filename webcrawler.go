@@ -43,9 +43,10 @@ var emptyLinks []Link
 var mutex sync.Mutex
 
 func main() {
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 	http.HandleFunc("/", home)
 	http.HandleFunc("/crawl", search)
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":8090", nil)
 }
 
 func home(writer http.ResponseWriter, r *http.Request) {
@@ -196,8 +197,12 @@ func speedyCrawl(linkChan <-chan Link, images chan<- string, writer http.Respons
 			if resp.StatusCode != http.StatusOK {
 				resp.Body.Close()
 				fmt.Errorf("Error on status code:%s,  %v", link.Url, err)
+				if resp.StatusCode == http.StatusTooManyRequests {
+					// Initiate stopping on crawling
+				}
 				continue
 				// TODO Not good HTTP status code
+				// Start termination if code is 429 Too Many Requests
 			}
 			page, err := html.Parse(resp.Body) // returns root *htmlNode
 			resp.Body.Close()

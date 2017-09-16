@@ -1,0 +1,20 @@
+.image-box img{
+  position: relative;
+  display: inline-block;
+  float: right;
+  margin-right: 3rem;
+  max-height: 16rem;
+  max-width: 20rem;
+}
+
+.url-prompt {
+  text-align: center;
+}
+
+.prompt {
+  //styles for prompt
+}
+
+.tester {
+  text-decoration-color: green;
+}

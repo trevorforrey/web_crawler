@@ -1,14 +1,25 @@
-<h1>{{.ErrorMessage}}</h1>
-<h1>{{.LinkCountTotal}} Links</h1>
-<h1>{{.ImageCountTotal}} Images</h1>
-<h1>{{.Time}} seconds</h1>
+<!DOCTYPE html>
+<html>
+
+<head>
+<link rel="stylesheet" type="text/css" href="/static/css/style.css">
+<title>Go Image Web Crawler</title>
+</head>
+
+<h1 class="stats">{{.LinkCountTotal}} Links</h1>
+<h1 class="stats">{{.ImageCountTotal}} Images</h1>
+<h1 class="stats">{{.Time}} seconds</h1>
 <div class="link-wrapper">
   {{range .Links}}
-    <h5>{{.}}</h5>
+    <!--><h5>{{.}}</h5><-->
   {{end}}
+</div>
+<div class="images-container">
   {{range .Images}}
-  <div class="image container">
+  <div class="image-box">
     <img src="{{.}}">
   </div>
   {{end}}
 </div>
+
+</html>

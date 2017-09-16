@@ -3,6 +3,7 @@
 
 <head>
 <script type='text/javascript' src='https://ajax.googleapis.com/ajax/libs/jquery/3.1.1/jquery.min.js'></script>
+<link rel="stylesheet" type="text/css" href="/static/css/style.css">
 <title>Go Image Web Crawler</title>
 </head>
 
@@ -14,11 +15,13 @@
 });
 </script>
 
-<h1> Enter in a URL as base to crawl through</h1>
-<form action="/crawl" method="post">
-    URL:<input type="text" name="baseURLs">
-    <input type="submit" value="Search">
-    <h1>{{.ErrorMessage}}
-</form>
+<div class="url-prompt">
+  <h1 class="prompt"> Enter in a URL as base to crawl through</h1>
+  <form action="/crawl" method="post">
+      URL:<input type="text" name="baseURLs">
+      <input type="submit" value="Search">
+      <h1>{{.ErrorMessage}}
+  </form>
+</div>
 
 </html>
