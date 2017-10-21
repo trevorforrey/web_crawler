@@ -15,12 +15,13 @@
 });
 </script>
 
+<h1 class="title">Go Image Crawler</h1>
 <div class="url-prompt">
   <h1 class="prompt"> Enter in a URL as base to crawl through</h1>
   <form action="/crawl" method="post">
       URL:<input type="text" name="baseURLs">
       <input type="submit" value="Search">
-      <h1>{{.ErrorMessage}}
+      <h1>{{.ErrorMessage}}</h1>
   </form>
 </div>
 

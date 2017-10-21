@@ -6,20 +6,24 @@
 <title>Go Image Web Crawler</title>
 </head>
 
-<h1 class="stats">{{.LinkCountTotal}} Links</h1>
-<h1 class="stats">{{.ImageCountTotal}} Images</h1>
-<h1 class="stats">{{.Time}} seconds</h1>
-<div class="link-wrapper">
-  {{range .Links}}
-    <!--><h5>{{.}}</h5><-->
-  {{end}}
-</div>
-<div class="images-container">
-  {{range .Images}}
-  <div class="image-box">
-    <img src="{{.}}">
+<div class="main-container">
+  <div class="stats-container">
+    <h1 class="stats-title">Results from: *insert base link here*</h1>
+    <h2 class="stats">Links: {{.LinkCountTotal}}</h2>
+    <h2 class="stats">Images: {{.ImageCountTotal}}</h2>
+    <h2 class="stats">{{.Time}} seconds</h2>
   </div>
-  {{end}}
+  <div class="link-container">
+    {{range .Links}}
+      <!--><h5>{{.}}</h5><-->
+    {{end}}
+  </div>
+  <div class="images-container">
+    {{range .Images}}
+    <div class="image-box">
+      <img src="{{.}}">
+    </div>
+    {{end}}
+  </div>
 </div>
-
 </html>
