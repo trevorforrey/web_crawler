@@ -38,8 +38,6 @@ type Link struct {
 	Depth int
 }
 
-var resultImgs []string
-var emptyLinks []Link
 var mutex sync.Mutex
 
 func main() {
@@ -57,6 +55,7 @@ func home(writer http.ResponseWriter, r *http.Request) {
 func search(writer http.ResponseWriter, r *http.Request) {
 	var resultVars ResultPageVars
 	var homeVars HomePageVars
+	var resultImgs []string
 
 	// Validating Input
 	if r.Method == "GET" {
@@ -120,7 +119,7 @@ func search(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	elapsedTime := time.Since(start).Seconds()
-	resultVars = aggregateResults(resultVars, elapsedTime)
+	resultVars = aggregateResults(resultVars, elapsedTime, resultImgs)
 
 	t, _ := template.ParseFiles("results.html")
 	t.Execute(writer, resultVars)
@@ -255,7 +254,7 @@ func forEveryNode(node *html.Node, pre, post func(n *html.Node)) {
 	}
 }
 
-func aggregateResults(resultVars ResultPageVars, elapsed float64) ResultPageVars {
+func aggregateResults(resultVars ResultPageVars, elapsed float64, resultImgs []string) ResultPageVars {
 	resultVars.LinkCountTotal = len(resultVars.Links)
 	resultVars.ImageCountTotal = len(resultImgs)
 	resultVars.Images = resultImgs
@@ -264,7 +263,7 @@ func aggregateResults(resultVars ResultPageVars, elapsed float64) ResultPageVars
 }
 
 func cleanResults(resultVars ResultPageVars) {
-	resultImgs = nil
+	resultVars.Images = nil
 	resultVars.LinkCountTotal = 0
 	resultVars.Links = nil
 	resultVars.ImageCountTotal = 0
